@@ -33,36 +33,33 @@ def normalize(src_pts, dst_pts):
         norm_dst_pts[i] = np.matmul(Tb, np.concatenate((dst_pts[i], np.array([1]))))[:-1]
     return norm_src_pts, norm_dst_pts, Ta, Tb
 
-def drawlines(img1,img2,lines,pts1,pts2):
-    ''' img1 - image on which we draw the epilines for the points in img2
+def drawlines(img1,img2,lines,pts1):
+    ''' img1 - image on which we draw epilines for points in img2
         lines - corresponding epilines '''
     print(img1.shape)
     r,c,ch = img1.shape
-    for r,pt1,pt2 in zip(lines,pts1,pts2):
+    for r,pt1 in zip(lines,pts1):
         color = tuple(np.random.randint(0,255,3).tolist())
         x0,y0 = map(int, [0, -r[2]/r[1]])
         x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1]])
         img1 = cv2.line(img1, (x0,y0), (x1,y1), color, 2)
         img1 = cv2.circle(img1,tuple(pt1.astype(int)),5,color,4)
-        img2 = cv2.circle(img2,tuple(pt2.astype(int)),5,color,4)
-    return img1,img2
+    return img1
 
-def draw_epipolar_lines(img1,img2,src_pts,dst_pts,F):
+def draw_epipolar_lines(img1,img2,src_pts,dst_pts,F, name, dataset):
     lines1 = cv2.computeCorrespondEpilines(dst_pts.reshape(-1,1,2), 2,F)
     lines1 = lines1.reshape(-1,3)
-    
-    img5,img6 = drawlines(img1,img2,lines1,src_pts,dst_pts)
+    img5 = drawlines(img1,img2,lines1,src_pts)
 
     lines2 = cv2.computeCorrespondEpilines(src_pts.reshape(-1, 1, 2), 1, F)
     lines2 = lines2.reshape(-1, 3)
-    img3, img4 = drawlines(img2, img1, lines2, dst_pts, src_pts)
+    img3 = drawlines(img2, img1, lines2, dst_pts)
 
-    print(lines1.shape, lines2.shape)
-    # cv2.imshow('img5', img5)
-    # cv2.imshow('img3', img3)
-    cv2.imwrite('data/{}/unnormalized_epipolar_img0.jpg'.format(dataset), img5)
-    cv2.imwrite('data/{}/unnormalized_epipolar_img1.jpg'.format(dataset), img3)
-    cv2.waitKey(0)
+    cv2.imwrite('data/{}/{}_epipolar_img0.jpg'.format(dataset, name), img5)
+    cv2.imwrite('data/{}/{}_epipolar_img1.jpg'.format(dataset, name), img3)
+    if name == 'rectify':
+        print('Epipolar lines along with feature points for rectified images are written to data/{}/{}_epipolar_img1.jpg'.format(dataset, name))
+    
 
 def create_F_matrix(selected_pts): #x' & x2 are equivalent
     A = []
@@ -153,7 +150,27 @@ def decompose_E(E):
         if np.linalg.det(rs[i]) < 0:
             rs[i] = -rs[i]
             cs[i] = -cs[i]
+            #print(cs[i])#, cs[i])
     return rs, cs
+
+def rectify(img1, img2, src_pts, dst_pts, F, dataset):
+    h, w, _ = img1.shape
+    _, H1, H2 = cv2.stereoRectifyUncalibrated(src_pts, dst_pts, F, imgSize=(w, h))
+    print('Homography matrix for left img:')
+    print(H1)
+    print('Homography matrix for right img:')
+    print(H2)
+    img1_rectify = cv2.warpPerspective(img1, H1, (w, h))
+    img2_rectify = cv2.warpPerspective(img2, H2, (w, h))
+
+    H2_t_inv = np.linalg.inv(H2.T)
+    H1_inv = np.linalg.inv(H1)
+    F_rectify = np.dot(H2_t_inv, np.dot(F, H1_inv))
+    src_pts_rectify = np.squeeze(cv2.perspectiveTransform(src_pts.reshape(-1, 1, 2), H1))
+    dst_pts_rectify = np.squeeze(cv2.perspectiveTransform(dst_pts.reshape(-1, 1, 2), H2))
+    draw_epipolar_lines(copy.copy(img1), copy.copy(img2), src_pts_rectify, dst_pts_rectify, F_rectify, 'rectify', dataset)
+
+
 
 if __name__ == '__main__':
     dataset = 'curule' #octagon #pendulum
@@ -188,8 +205,11 @@ if __name__ == '__main__':
     epsilon = 1e-3#c1e-3 o1e-3 p
     selected_pts = [norm_src_pts, norm_dst_pts]
     F = ransac_for_F(selected_pts, epsilon, Ta, Tb)
-    
-    # draw_epipolar_lines(img1,img2, src_pts, dst_pts, F)
+    draw_epipolar_lines(copy.copy(img1), copy.copy(img2), src_pts, dst_pts, F, 'norm')
 
     E = estimate_essential_mat(F, K)
     R_arr, T_arr = decompose_E(E)
+    #R, T = filter_RT(R_arr, T_arr)
+    #print(R_arr, T_arr)
+
+    rectify(img1, img2, src_pts, dst_pts, F, dataset)
