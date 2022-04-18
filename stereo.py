@@ -36,7 +36,6 @@ def normalize(src_pts, dst_pts):
 def drawlines(img1,img2,lines,pts1):
     ''' img1 - image on which we draw epilines for points in img2
         lines - corresponding epilines '''
-    print(img1.shape)
     r,c,ch = img1.shape
     for r,pt1 in zip(lines,pts1):
         color = tuple(np.random.randint(0,255,3).tolist())
@@ -58,7 +57,7 @@ def draw_epipolar_lines(img1,img2,src_pts,dst_pts,F, name, dataset):
     cv2.imwrite('data/{}/{}_epipolar_img0.jpg'.format(dataset, name), img5)
     cv2.imwrite('data/{}/{}_epipolar_img1.jpg'.format(dataset, name), img3)
     if name == 'rectify':
-        print('Epipolar lines along with feature points for rectified images are written to data/{}/{}_epipolar_img1.jpg'.format(dataset, name))
+        print('Epipolar lines along with feature points for rectified images are written to data/{}/{}_epipolar_img*.jpg'.format(dataset, name))
     
 
 def create_F_matrix(selected_pts): #x' & x2 are equivalent
@@ -155,10 +154,10 @@ def decompose_E(E):
 
 def rectify(img1, img2, src_pts, dst_pts, F, dataset):
     h, w, _ = img1.shape
-    _, H1, H2 = cv2.stereoRectifyUncalibrated(src_pts, dst_pts, F, imgSize=(w, h))
-    print('Homography matrix for left img:')
+    _, H1, H2 = cv2.stereoRectifyUncalibrated(np.int32(src_pts), np.int32(dst_pts), F, imgSize=(w, h))
+    print('Homography matrix for Rectification of left img:')
     print(H1)
-    print('Homography matrix for right img:')
+    print('Homography matrix for Rectification of right img:')
     print(H2)
     img1_rectify = cv2.warpPerspective(img1, H1, (w, h))
     img2_rectify = cv2.warpPerspective(img2, H2, (w, h))
@@ -169,8 +168,44 @@ def rectify(img1, img2, src_pts, dst_pts, F, dataset):
     src_pts_rectify = np.squeeze(cv2.perspectiveTransform(src_pts.reshape(-1, 1, 2), H1))
     dst_pts_rectify = np.squeeze(cv2.perspectiveTransform(dst_pts.reshape(-1, 1, 2), H2))
     draw_epipolar_lines(copy.copy(img1), copy.copy(img2), src_pts_rectify, dst_pts_rectify, F_rectify, 'rectify', dataset)
+    
+    return img1_rectify, img2_rectify
+
+def compute_disparity(img1_rectify_rgb, img2_rectify_rgb, dataset):
+    img1_rectify = cv2.cvtColor(img1_rectify_rgb, cv2.COLOR_BGR2GRAY)
+    img2_rectify = cv2.cvtColor(img2_rectify_rgb, cv2.COLOR_BGR2GRAY)
+    disparity_map = np.zeros((img1_rectify.shape))
+    half_block_size = 5 #actual block size is half_block_size*2+1
+    h, w = img1_rectify.shape
+    half_nbd = 50 # number of columns on either side of the center pixel where we are checking for matches
+    for r in range(half_block_size, h-half_block_size):
+        left_block_arr = []
+        right_block_arr = []
+        for c in range(half_block_size, w-half_block_size):
+            left_block = img1_rectify[r-half_block_size : r+half_block_size, c-half_block_size : c+half_block_size]
+            right_block = img2_rectify[r-half_block_size : r+half_block_size, c-half_block_size : c+half_block_size]
+            right_block_arr.append(right_block)
+            left_block_arr.append(left_block)
+        for c in range(len(left_block_arr)):
+            left_block = left_block_arr[c]
+            right_sub_arr_min = max(0, c-half_nbd)
+            right_sub_arr_max = min(len(left_block_arr), c+half_nbd)
+            min_ssd = 1e5
+            for idx in range(right_sub_arr_min, right_sub_arr_max):
+                ssd = np.sum((left_block - right_block_arr[idx])**2)
+                if ssd < min_ssd:
+                    min_ssd = ssd
+                    min_idx = idx
+            disparity = abs(c - min_idx)
+            disparity_map[r, half_block_size+c] = disparity
+        if r%10 == 0:
+            cv2.imwrite('data/{}/disparity.jpg'.format(dataset), disparity_map)
+    
+    cv2.imwrite('data/{}/disparity.jpg'.format(dataset), disparity_map)
 
 
+    print(disparity_map.shape)
+    return disparity_map
 
 if __name__ == '__main__':
     dataset = 'curule' #octagon #pendulum
@@ -205,11 +240,20 @@ if __name__ == '__main__':
     epsilon = 1e-3#c1e-3 o1e-3 p
     selected_pts = [norm_src_pts, norm_dst_pts]
     F = ransac_for_F(selected_pts, epsilon, Ta, Tb)
-    draw_epipolar_lines(copy.copy(img1), copy.copy(img2), src_pts, dst_pts, F, 'norm')
+    draw_epipolar_lines(copy.copy(img1), copy.copy(img2), src_pts, dst_pts, F, 'norm', dataset)
 
     E = estimate_essential_mat(F, K)
     R_arr, T_arr = decompose_E(E)
     #R, T = filter_RT(R_arr, T_arr)
     #print(R_arr, T_arr)
 
-    rectify(img1, img2, src_pts, dst_pts, F, dataset)
+    img1_rectify, img2_rectify = rectify(img1, img2, src_pts, dst_pts, F, dataset)
+    cv2.imshow('img1', img1)
+    cv2.imshow('img2', img2)
+    
+    cv2.imshow('img1_rectify', img1_rectify)
+    cv2.imshow('img2_rectify', img2_rectify)
+    cv2.waitKey(0)
+    exit()
+    
+    #disparity = compute_disparity(img1_rectify, img2_rectify, dataset)
