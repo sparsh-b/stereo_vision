@@ -239,7 +239,7 @@ def compute_disparity(img1_rectify_rgb, img2_rectify_rgb, dataset):
     plt.figure()
     plt.imshow(disparity_map, cmap='hot', interpolation='nearest')
     plt.colorbar()
-    plt.savefig('data/{}/disparity_heat.jpg'.format(dataset))
+    plt.savefig('data/{}/disparity_heat.png'.format(dataset))
 
     print(disparity_map.shape)
     return disparity_map
@@ -254,7 +254,7 @@ def compute_depth(disparity, focal_len, baseline, dataset):
     plt.figure()
     plt.imshow(disparity_map, cmap='hot', interpolation='nearest')
     plt.colorbar()
-    plt.savefig('data/{}/depth_heat.jpg'.format(dataset))
+    plt.savefig('data/{}/depth_heat.png'.format(dataset))
     # return depth_img
 
 
