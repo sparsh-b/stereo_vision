@@ -6,6 +6,6 @@
 - dataset should be present at `./data/*`. EG: `./data/curule/im0.png`
 - `python3 stereo.py -dataset=<scene>`. EG: `python3 stereo.py -dataset=curule`
 
-#Note:
+# Note:
 - Kindly take a look at the pdf in this repo for an explanation of the process followed.
 - The dataset used for this project is MiddleBury Stereo Dataset.
